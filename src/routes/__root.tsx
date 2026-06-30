@@ -79,9 +79,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "BuildBuddy — Find your perfect project partner" },
-      { name: "description", content: "Connect with students, developers, designers and innovators to build amazing projects together." },
+      {
+        name: "description",
+        content:
+          "Connect with students, developers, designers and innovators to build amazing projects together.",
+      },
       { property: "og:title", content: "BuildBuddy" },
-      { property: "og:description", content: "Find project partners, collaborate, chat and showcase your skills." },
+      {
+        property: "og:description",
+        content: "Find project partners, collaborate, chat and showcase your skills.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
