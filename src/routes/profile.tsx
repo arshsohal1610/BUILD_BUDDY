@@ -1,33 +1,45 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Pencil, Trophy, Award, Star, Github, Linkedin, Globe } from "lucide-react";
 import { useUser } from "@/lib/auth";
 import { toast } from "sonner";
+import { getBuddies, getProfile, getUserProjects, updateProfile, type BuildBuddyUser, type Project } from "@/lib/api";
+import { setUser } from "@/lib/auth";
+import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({ meta: [{ title: "Profile · BuildBuddy" }] }),
   component: Profile,
 });
 
-const skills = ["React", "TypeScript", "Python", "TensorFlow", "Figma", "Node.js", "PostgreSQL", "Tailwind"];
+const skills: string[] = [];
 
-const achievements = [
-  { icon: Trophy, label: "Smart India Hackathon · Winner", year: "2024", tint: "bg-warning/10 text-warning" },
-  { icon: Award, label: "AWS Certified Developer", year: "2024", tint: "bg-primary/10 text-primary" },
-  { icon: Star, label: "Top 5% open-source contributor", year: "2023", tint: "bg-accent/10 text-accent" },
-];
+const achievements: { icon: typeof Trophy; label: string; year: string; tint: string }[] = [];
 
-const completed = [
-  { name: "BuildBuddy Beta", role: "Full-stack lead", year: "2025" },
-  { name: "Resume Roast AI", role: "ML engineer", year: "2024" },
-  { name: "Campus Swap", role: "Mobile dev", year: "2024" },
-];
+const completed: { name: string; role: string; year: string }[] = [];
 
 function Profile() {
   const user = useUser();
-  const name = user?.username ?? "Builder";
-  const email = user?.email ?? "builder@buildbuddy.dev";
+  const [profile, setProfile] = useState<BuildBuddyUser | null>(null);
+  const [connectionCount, setConnectionCount] = useState(0);
+  const [createdProjects, setCreatedProjects] = useState<Project[]>([]);
+  const [joinedProjects, setJoinedProjects] = useState<Project[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<ProfileUpdateForm>({});
+  useEffect(() => { if (user?.email) getProfile(user.email).then(setProfile).catch(() => undefined); }, [user?.email]);
+  useEffect(() => { if (user?.id) Promise.all([getBuddies(user.id), getUserProjects(user.id)]).then(([buddies, projects]) => { setConnectionCount(buddies.length); setCreatedProjects(projects.created_projects); setJoinedProjects(projects.joined_projects); }).catch(() => undefined); }, [user?.id]);
+  const current = profile ?? user;
+  const name = current?.username ?? "";
+  const email = current?.email ?? "";
+  const profileSkills = current?.skills?.split(",").map((skill) => skill.trim()).filter(Boolean) ?? skills;
+  const openEdit = () => { setForm({ username: current?.username ?? "", bio: current?.bio ?? "", college: current?.college ?? "", branch: current?.branch ?? "", year: current?.year ?? "", location: current?.location ?? "", skills: current?.skills ?? "", github: current?.github ?? "", linkedin: current?.linkedin ?? "", portfolio: current?.portfolio ?? "", profile_image: current?.profile_image ?? "" }); setEditing(true); };
+  const saveProfile = async (event: React.FormEvent) => { event.preventDefault(); if (!user?.email) return; try { setSaving(true); const saved = await updateProfile(user.email, form); setProfile(saved); setUser(saved); setEditing(false); toast.success("Profile updated", { description: "Your changes have been saved." }); } catch (error) { toast.error("Profile update failed", { description: error instanceof Error ? error.message : undefined }); } finally { setSaving(false); } };
 
   return (
     <AppShell>
@@ -38,28 +50,27 @@ function Profile() {
           <div className="px-6 sm:px-8 pb-6 -mt-12">
             <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-4">
               <div className="grid h-24 w-24 sm:h-28 sm:w-28 place-items-center rounded-3xl bg-primary text-primary-foreground font-display text-3xl font-bold shadow-card border-4 border-background shrink-0">
-                {name.charAt(0).toUpperCase()}
+                {current?.profile_image ? <img src={current.profile_image} alt="Profile" className="h-full w-full rounded-3xl object-cover" /> : name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0 pb-1">
                 <h1 className="font-display text-2xl sm:text-3xl font-bold truncate">{name}</h1>
-                <p className="text-sm text-muted-foreground truncate">Full-stack builder · AI/ML enthusiast</p>
+                <p className="text-sm text-muted-foreground truncate">{[current?.branch, current?.college, current?.year, current?.location].filter(Boolean).join(" · ")}</p>
               </div>
               <Button
                 variant="outline"
                 className="shrink-0 rounded-full"
-                onClick={() => toast.success("✅ Profile updated", { description: "Your changes have been saved." })}
+                onClick={openEdit}
               >
                 <Pencil className="h-4 w-4" /> Edit
               </Button>
             </div>
             <p className="mt-4 text-sm text-muted-foreground max-w-2xl">
-              Building delightful products at the intersection of AI and developer tooling. Currently shipping BuildBuddy.
-              Looking for partners on weekend hackathons and longer-term open-source ventures.
+              {current?.bio || ""}
             </p>
             <div className="mt-4 flex flex-wrap gap-3 text-sm text-muted-foreground">
               <a className="inline-flex items-center gap-1.5 hover:text-foreground"><Globe className="h-4 w-4" /> {email}</a>
-              <a className="inline-flex items-center gap-1.5 hover:text-foreground"><Github className="h-4 w-4" /> github.com/{name.toLowerCase()}</a>
-              <a className="inline-flex items-center gap-1.5 hover:text-foreground"><Linkedin className="h-4 w-4" /> linkedin.com/in/{name.toLowerCase()}</a>
+              {current?.github && <a className="inline-flex items-center gap-1.5 hover:text-foreground" href={current.github}><Github className="h-4 w-4" /> {current.github}</a>}
+              {current?.linkedin && <a className="inline-flex items-center gap-1.5 hover:text-foreground" href={current.linkedin}><Linkedin className="h-4 w-4" /> {current.linkedin}</a>}
             </div>
           </div>
         </div>
@@ -67,9 +78,9 @@ function Profile() {
         {/* Stats */}
         <div className="mt-6 grid grid-cols-3 gap-3">
           {[
-            { label: "Projects completed", value: 14 },
-            { label: "Connections", value: 132 },
-            { label: "Skills", value: skills.length },
+            { label: "Projects completed", value: createdProjects.length + joinedProjects.length },
+            { label: "Connections", value: connectionCount },
+            { label: "Skills", value: profileSkills.length },
           ].map((s) => (
             <div key={s.label} className="surface-card p-5 text-center">
               <p className="text-2xl sm:text-3xl font-bold text-gradient">{s.value}</p>
@@ -81,7 +92,7 @@ function Profile() {
         {/* Skills */}
         <Section title="Skills">
           <div className="flex flex-wrap gap-2">
-            {skills.map((s) => (
+            {profileSkills.map((s) => (
               <span key={s} className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium">
                 {s}
               </span>
@@ -112,18 +123,26 @@ function Profile() {
         {/* Completed projects */}
         <Section title="Completed projects">
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {completed.map((p) => (
-              <div key={p.name} className="surface-card p-5">
+            {[...createdProjects.map((project) => ({ project, role: "Created" })), ...joinedProjects.map((project) => ({ project, role: "Joined" }))].map(({ project, role }) => (
+              <div key={project.id} className="surface-card p-5">
                 <div className="h-20 rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 mb-3" />
-                <h3 className="font-semibold truncate">{p.name}</h3>
-                <p className="text-xs text-muted-foreground mt-1">{p.role} · {p.year}</p>
+                <h3 className="font-semibold truncate">{project.title}</h3>
+                <p className="text-xs text-muted-foreground mt-1">{role}</p>
               </div>
             ))}
           </div>
         </Section>
+        <ProfileDialog open={editing} onOpenChange={setEditing} form={form} setForm={setForm} saving={saving} onSubmit={saveProfile} />
       </div>
     </AppShell>
   );
+}
+
+type ProfileUpdateForm = { username?: string; bio?: string; college?: string; branch?: string; year?: string; location?: string; skills?: string; github?: string; linkedin?: string; portfolio?: string; profile_image?: string };
+
+function ProfileDialog({ open, onOpenChange, form, setForm, saving, onSubmit }: { open: boolean; onOpenChange: (open: boolean) => void; form: ProfileUpdateForm; setForm: React.Dispatch<React.SetStateAction<ProfileUpdateForm>>; saving: boolean; onSubmit: (event: React.FormEvent) => void }) {
+  const input = (key: keyof ProfileUpdateForm, label: string, textarea = false) => <div key={key}><Label htmlFor={`profile-${key}`}>{label}</Label>{textarea ? <Textarea id={`profile-${key}`} value={form[key] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} className="mt-1.5" /> : <Input id={`profile-${key}`} value={form[key] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} className="mt-1.5" />}</div>;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Edit profile</DialogTitle></DialogHeader><form onSubmit={onSubmit} className="space-y-4">{input("username", "Username")}{input("bio", "Bio", true)}<div className="grid sm:grid-cols-2 gap-4">{input("college", "College")}{input("branch", "Branch")}{input("year", "Academic year")}{input("location", "Location")}</div>{input("skills", "Skills (comma separated)")}{input("github", "GitHub URL")}{input("linkedin", "LinkedIn URL")}{input("portfolio", "Portfolio URL")}{input("profile_image", "Profile picture URL")}<Button type="submit" className="w-full" disabled={saving}>{saving ? "Updating..." : "Update Profile"}</Button></form></DialogContent></Dialog>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

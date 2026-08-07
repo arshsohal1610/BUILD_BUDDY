@@ -2,8 +2,19 @@
 import { useEffect, useState } from "react";
 
 export type User = {
+  id: number;
   username: string;
   email: string;
+  bio?: string | null;
+  college?: string | null;
+  branch?: string | null;
+  year?: string | null;
+  location?: string | null;
+  skills?: string | null;
+  github?: string | null;
+  linkedin?: string | null;
+  portfolio?: string | null;
+  profile_image?: string | null;
 };
 
 const KEY = "buildbuddy-user";

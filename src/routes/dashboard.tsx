@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { getWelcomeMessage } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { createProject, getProjects, getBuddies, getUserProjects, joinProject, type Project } from "@/lib/api";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Search, Users, Trophy, Layers, ArrowRight } from "lucide-react";
 import { useUser } from "@/lib/auth";
-import { recommendedProjects, activeProjects } from "@/lib/mock-data";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard")({
@@ -16,23 +17,81 @@ export const Route = createFileRoute("/dashboard")({
 
 function Dashboard() {
   const user = useUser();
-  const name = user?.username ?? "Builder";
+  const name = user?.username ?? "";
 
-  const [message, setMessage] = useState("Click the button to test the backend");
-  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [joinedProjects, setJoinedProjects] = useState<Project[]>([]);
+  const [buddyCount, setBuddyCount] = useState(0);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectTitle, setProjectTitle] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+  const [projectSkills, setProjectSkills] = useState("");
+  const [projectTeamSize, setProjectTeamSize] = useState("3");
 
-  async function handleBackendTest() {
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        setProjectsLoading(true);
+        const data = await getProjects();
+        setProjects(data);
+      } catch (error) {
+        console.error(error);
+        toast.error("Failed to load projects", { description: "Please check your backend." });
+      } finally {
+        setProjectsLoading(false);
+      }
+    }
+
+    loadProjects();
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    Promise.all([getBuddies(user.id), getUserProjects(user.id)]).then(([buddies, projectData]) => {
+      setBuddyCount(buddies.length); setJoinedProjects(projectData.joined_projects);
+    }).catch(() => undefined);
+  }, [user?.id]);
+
+  const myProjects = projects.filter((project) => project.created_by === user?.email);
+  const skillsAdded = user?.skills?.split(",").filter(Boolean).length ?? 0;
+
+  async function handleCreateProject(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (!projectTitle || !projectDescription || !projectSkills || !projectTeamSize) {
+      toast.error("Missing details", { description: "Please complete the project form." });
+      return;
+    }
+
+    const teamSize = Number(projectTeamSize);
+
+    if (!Number.isInteger(teamSize) || teamSize < 1) {
+      toast.error("Invalid team size", { description: "Team size must be at least 1." });
+      return;
+    }
+
     try {
-      setLoading(true);
+      setCreatingProject(true);
+      const project = await createProject({
+        title: projectTitle,
+        description: projectDescription,
+        skills_required: projectSkills,
+        team_size: teamSize,
+        created_by: user?.email ?? null,
+      });
 
-      const data = await getWelcomeMessage();
-
-      setMessage(data.message);
+      setProjects((current) => [project, ...current]);
+      setProjectTitle("");
+      setProjectDescription("");
+      setProjectSkills("");
+      setProjectTeamSize("3");
+      toast.success("Project created", { description: `${project.title} is now listed.` });
     } catch (error) {
       console.error(error);
-      setMessage("❌ Failed to connect to backend");
+      toast.error("Failed to create project", { description: "Please try again." });
     } finally {
-      setLoading(false);
+      setCreatingProject(false);
     }
   }
 
@@ -53,7 +112,7 @@ function Dashboard() {
           <Search className="h-4 w-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search projects, skills, or buddies..."
-            className="pl-11.h-12 rounded-full.bg-surface"
+            className="pl-11 h-12 rounded-full bg-surface"
           />
         </div>
 
@@ -63,40 +122,143 @@ function Dashboard() {
           </Link>
         </Button>
 
-        <div className="mt-4">
-          <Button onClick={handleBackendTest} disabled={loading}>
-            {loading ? "Connecting..." : "Test Backend Connection"}
-          </Button>
-
-          <p className="mt-2">{message}</p>
-        </div>
-
-        <Stats />
+        <Stats projectsCount={myProjects.length} buddyCount={buddyCount} skillsCount={skillsAdded} />
 
         <section className="mt-10">
           <div className="flex items-end justify-between mb-4">
-            <h2 className="text-xl font-bold">Recommended projects</h2>
+            <h2 className="text-xl font-bold">Create project</h2>
             <Link to="/explore" className="text-sm font-medium text-primary hover:underline">
               Browse all
             </Link>
           </div>
+
+          <form onSubmit={handleCreateProject} className="surface-card p-5">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="project-title">Title</Label>
+                <Input
+                  id="project-title"
+                  value={projectTitle}
+                  onChange={(e) => setProjectTitle(e.target.value)}
+                  placeholder="AI study planner"
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="project-team-size">Team size</Label>
+                <Input
+                  id="project-team-size"
+                  type="number"
+                  min="1"
+                  value={projectTeamSize}
+                  onChange={(e) => setProjectTeamSize(e.target.value)}
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <Label htmlFor="project-description">Description</Label>
+              <Textarea
+                id="project-description"
+                value={projectDescription}
+                onChange={(e) => setProjectDescription(e.target.value)}
+                placeholder="What are you building?"
+                className="mt-1.5"
+              />
+            </div>
+            <div className="mt-4">
+              <Label htmlFor="project-skills">Skills required</Label>
+              <Input
+                id="project-skills"
+                value={projectSkills}
+                onChange={(e) => setProjectSkills(e.target.value)}
+                placeholder="React, FastAPI, Design"
+                className="mt-1.5"
+              />
+            </div>
+            <Button type="submit" className="mt-4 w-full sm:w-auto rounded-full" disabled={creatingProject}>
+              {creatingProject ? "Creating..." : "Create project"}
+            </Button>
+          </form>
+        </section>
+
+        <section className="mt-10">
+          <div className="flex items-end justify-between mb-4">
+            <h2 className="text-xl font-bold">Projects</h2>
+            {projectsLoading ? (
+              <span className="text-sm text-muted-foreground">Loading...</span>
+            ) : null}
+          </div>
           <div className="grid sm:grid-cols-2 gap-4">
-            {recommendedProjects.map((p) => (
-              <div key={p.id} className="surface-card p-5 flex flex-col">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-primary uppercase tracking-wider">
-                      {p.category}
-                    </p>
-                    <h3 className="mt-1 font-display font-bold text-lg truncate">{p.name}</h3>
+            {projects.map((p) => {
+              const skills = p.skills_required
+                .split(",")
+                .map((skill) => skill.trim())
+                .filter(Boolean);
+
+              return (
+                <div key={p.id} className="surface-card p-5 flex flex-col">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-primary uppercase tracking-wider">
+                        {p.created_by ? `By ${p.created_by}` : "Open project"}
+                      </p>
+                      <h3 className="mt-1 font-display font-bold text-lg truncate">{p.title}</h3>
+                    </div>
+                    <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+                      {p.member_count ?? 0}/{p.team_size}
+                    </span>
                   </div>
-                  <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
-                    {p.filled}/{p.teamSize}
-                  </span>
+                  <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
+                    {p.description}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {skills.map((s) => (
+                      <span
+                        key={s}
+                        className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                      >
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                  <Button
+                    className="mt-4 w-full rounded-full"
+                    onClick={async () => { if (!user?.email) return; try { await joinProject(p.id, user.email); setProjects((items) => items.map((item) => item.id === p.id ? { ...item, member_count: (item.member_count ?? 0) + 1 } : item)); setJoinedProjects((items) => [...items, p]); toast.success("Project joined", { description: `You joined ${p.title}` }); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not join project"); } }}
+                  >
+                    Join project
+                  </Button>
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{p.description}</p>
+              );
+            })}
+          </div>
+          {!projectsLoading && projects.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No projects yet. Create the first one.</p>
+          ) : null}
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-xl font-bold mb-4">My active projects</h2>
+          <div className="space-y-3">
+            {myProjects.map((p) => {
+              const skills = p.skills_required
+                .split(",")
+                .map((skill) => skill.trim())
+                .filter(Boolean);
+
+              return (
+              <div key={p.id} className="surface-card p-5">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold truncate">{p.title}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {p.description}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-primary">Active</span>
+                </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {p.skills.map((s) => (
+                  {skills.map((s) => (
                     <span
                       key={s}
                       className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
@@ -105,53 +267,34 @@ function Dashboard() {
                     </span>
                   ))}
                 </div>
-                <Button
-                  className="mt-4 w-full rounded-full"
-                  onClick={() =>
-                    toast.success("✅ Project joined", { description: `You joined ${p.name}` })
-                  }
-                >
-                  Join project
-                </Button>
+                <p className="text-xs text-muted-foreground mt-3">Team size: {p.team_size}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
-        </section>
-
-        <section className="mt-10">
-          <h2 className="text-xl font-bold mb-4">My active projects</h2>
-          <div className="space-y-3">
-            {activeProjects.map((p) => (
-              <div key={p.id} className="surface-card p-5">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-                  <div className="min-w-0">
-                    <h3 className="font-semibold truncate">{p.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {p.members} members · {p.status}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-sm font-semibold text-primary">{p.progress}%</span>
-                </div>
-                <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all"
-                    style={{ width: `${p.progress}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          {!projectsLoading && myProjects.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No active projects yet.</p>
+          ) : null}
+          {joinedProjects.length > 0 && <p className="mt-3 text-xs text-muted-foreground">Joined projects: {joinedProjects.map((project) => project.title).join(", ")}</p>}
         </section>
       </div>
     </AppShell>
   );
 }
 
-function Stats() {
+function Stats({
+  projectsCount,
+  buddyCount,
+  skillsCount,
+}: {
+  projectsCount: number;
+  buddyCount: number;
+  skillsCount: number;
+}) {
   const items = [
-    { label: "Projects joined", value: 7, Icon: Layers, tint: "bg-primary/10 text-primary" },
-    { label: "Buddies connected", value: 24, Icon: Users, tint: "bg-accent/10 text-accent" },
-    { label: "Skills added", value: 12, Icon: Trophy, tint: "bg-success/10 text-success" },
+    { label: "Projects", value: projectsCount, Icon: Layers, tint: "bg-primary/10 text-primary" },
+    { label: "Buddies connected", value: buddyCount, Icon: Users, tint: "bg-accent/10 text-accent" },
+    { label: "Skills added", value: skillsCount, Icon: Trophy, tint: "bg-success/10 text-success" },
   ] as const;
   return (
     <div className="mt-6 grid grid-cols-3 gap-3">

@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Send, Phone, Video, MoreVertical } from "lucide-react";
-import { chatThreads, seedMessages } from "@/lib/mock-data";
+import { getBuddies, getDirectMessages, getProjectMessages, getUserEventsUrl, getUserProjects, sendDirectMessage, sendProjectMessage } from "@/lib/api";
+import { useUser } from "@/lib/auth";
 
 export const Route = createFileRoute("/chat")({
   head: () => ({ meta: [{ title: "Chat · BuildBuddy" }] }),
@@ -12,30 +13,66 @@ export const Route = createFileRoute("/chat")({
 });
 
 type Msg = { id: number; from: "me" | "them"; text: string; time: string };
+type Thread = { id: string; name: string; initials: string; color: string; online: boolean; time: string; last: string; projectId?: number };
 
 function ChatPage() {
-  const [activeId, setActiveId] = useState<string>("c1");
+  const user = useUser();
+  const [activeId, setActiveId] = useState<string>("");
+  const [threads, setThreads] = useState<Thread[]>([]);
   const [q, setQ] = useState("");
-  const [messagesByThread, setMessagesByThread] = useState<Record<string, Msg[]>>(seedMessages);
+  const [messagesByThread, setMessagesByThread] = useState<Record<string, Msg[]>>({});
   const [draft, setDraft] = useState("");
 
+  useEffect(() => {
+    if (!user?.id) return;
+    Promise.all([getBuddies(user.id), getUserProjects(user.id)]).then(([buddies, projectData]) => {
+      const colors = ["primary", "accent", "success", "warning"];
+      const directThreads = buddies.map((buddy, index) => ({ id: `user-${buddy.id}`, name: buddy.username, initials: buddy.username.slice(0, 2).toUpperCase(), color: colors[index % colors.length], online: false, time: "", last: "" }));
+      const projectThreads = [...projectData.created_projects, ...projectData.joined_projects].map((project, index) => ({ id: `project-${project.id}`, name: project.title, initials: project.title.slice(0, 2).toUpperCase(), color: colors[(index + directThreads.length) % colors.length], online: false, time: "", last: "", projectId: project.id }));
+      const next = [...directThreads, ...projectThreads];
+      setThreads(next); setActiveId(next[0]?.id ?? "");
+    }).catch(() => undefined);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !activeId) return;
+    const thread = threads.find((item) => item.id === activeId);
+    const load = () => {
+      const source = thread?.projectId ? getProjectMessages(thread.projectId, user.id) : getDirectMessages(user.id);
+      source.then((messages) => setMessagesByThread((previous) => ({ ...previous, [activeId]: messages.filter((message) => thread?.projectId ? message.project_id === thread.projectId : String(message.sender_id === user.id ? message.receiver_id : message.sender_id) === activeId.replace("user-", "") && !message.project_id).map((message) => ({ id: message.id, from: message.sender_id === user.id ? "me" : "them", text: message.content, time: new Date(message.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })) }))).catch(() => undefined);
+    };
+    load(); const timer = window.setInterval(load, 5000); return () => window.clearInterval(timer);
+  }, [user?.id, activeId, threads]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const socket = new WebSocket(getUserEventsUrl(user.id));
+    socket.onmessage = (event) => {
+      const payload = JSON.parse(event.data);
+      if (payload.type !== "message") return;
+      const message = payload.message as { id: number; sender_id: number; project_id?: number | null; content: string; sent_at: string };
+      const thread = threads.find((item) => message.project_id ? item.projectId === message.project_id : item.id === `user-${message.sender_id}`);
+      if (!thread) return;
+      setMessagesByThread((previous) => ({ ...previous, [thread.id]: [...(previous[thread.id] ?? []), { id: message.id, from: "them", text: message.content, time: new Date(message.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] }));
+    };
+    return () => socket.close();
+  }, [user?.id, threads]);
+
   const filtered = useMemo(() =>
-    chatThreads.filter((t) => t.name.toLowerCase().includes(q.toLowerCase())),
-    [q]
+    threads.filter((t) => t.name.toLowerCase().includes(q.toLowerCase())),
+    [q, threads]
   );
-  const active = chatThreads.find((t) => t.id === activeId)!;
+  const active = threads.find((t) => t.id === activeId) ?? { id: "", name: "", initials: "", color: "primary", online: false, time: "", last: "" };
   const msgs = messagesByThread[activeId] ?? [];
 
-  const send = (e: React.FormEvent) => {
+  const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft.trim()) return;
     const now = new Date();
     const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-    setMessagesByThread((prev) => ({
-      ...prev,
-      [activeId]: [...(prev[activeId] ?? []), { id: Date.now(), from: "me", text: draft, time }],
-    }));
-    setDraft("");
+    if (!user?.id || !activeId) return;
+    const thread = threads.find((item) => item.id === activeId);
+    try { const message = thread?.projectId ? await sendProjectMessage(user.id, thread.projectId, draft) : await sendDirectMessage(user.id, Number(activeId.replace("user-", "")), draft); setMessagesByThread((prev) => ({ ...prev, [activeId]: [...(prev[activeId] ?? []), { id: message.id, from: "me", text: message.content, time }] })); setDraft(""); } catch { /* leave draft available to retry */ }
   };
 
   const tint = (c: string) => ({

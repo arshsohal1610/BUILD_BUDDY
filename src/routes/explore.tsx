@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, UserPlus } from "lucide-react";
-import { buddies, type Buddy } from "@/lib/mock-data";
+import { acceptBuddyRequest, getBuddies, getBuddyRequests, getUsers, rejectBuddyRequest, searchBuildBuddy, sendBuddyRequest, type BuildBuddyUser } from "@/lib/api";
+import { useUser } from "@/lib/auth";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/explore")({
@@ -14,12 +15,84 @@ export const Route = createFileRoute("/explore")({
 
 const filters = ["All", "AI/ML", "Web Development", "App Development", "Designers", "Beginners", "Experts"] as const;
 
+type Buddy = {
+  id: string;
+  name: string;
+  occupation: string;
+  skills: string[];
+  category: string;
+  level: "Beginner" | "Expert";
+  initials: string;
+  color: "primary" | "accent" | "success" | "warning";
+};
+
+const colors: Buddy["color"][] = ["primary", "accent", "success", "warning"];
+
+function userToBuddy(user: BuildBuddyUser): Buddy {
+  const name = user.username || user.email.split("@")[0] || "Builder";
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "B";
+
+  return {
+    id: String(user.id),
+    name,
+    occupation: user.email,
+    skills: user.skills?.split(",").map((skill) => skill.trim()).filter(Boolean) ?? [],
+    category: "Web Development",
+    level: "Beginner",
+    initials,
+    color: colors[user.id % colors.length],
+  };
+}
+
 function Explore() {
+  const currentUser = useUser();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]>("All");
+  const [users, setUsers] = useState<BuildBuddyUser[]>([]);
+  const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+  const [receivedRequests, setReceivedRequests] = useState<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const data = await getUsers();
+        setUsers(data);
+      } catch (error) {
+        console.error(error);
+        toast.error("Failed to load users", { description: "Please check your backend." });
+      }
+    }
+
+    loadUsers();
+  }, []);
+
+  useEffect(() => {
+    if (!q.trim()) { getUsers().then(setUsers).catch(() => undefined); return; }
+    const timer = window.setTimeout(() => searchBuildBuddy(q).then((result) => setUsers(result.users)).catch(() => undefined), 250);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    Promise.all([getBuddies(currentUser.id), getBuddyRequests(currentUser.id)]).then(([buddies, requests]) => {
+      setConnectedIds(new Set(buddies.map((buddy) => buddy.id)));
+      setPendingIds(new Set(requests.sent.map((request) => request.receiver_id)));
+      setReceivedRequests(new Map(requests.received.map((request) => [request.requester_id, request.id])));
+    }).catch(() => undefined);
+  }, [currentUser?.id]);
 
   const list = useMemo(() => {
-    return buddies.filter((b) => {
+    return users
+      .filter((user) => user.email !== currentUser?.email)
+      .map(userToBuddy)
+      .filter((b) => {
       if (filter !== "All") {
         if (filter === "Beginners" && b.level !== "Beginner") return false;
         if (filter === "Experts" && b.level !== "Expert") return false;
@@ -31,7 +104,7 @@ function Explore() {
       }
       return true;
     });
-  }, [q, filter]);
+  }, [currentUser?.email, q, filter, users]);
 
   return (
     <AppShell>
@@ -69,7 +142,20 @@ function Explore() {
         </div>
 
         <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {list.map((b) => <BuddyCard key={b.id} buddy={b} />)}
+          {list.map((b) => <BuddyCard key={b.id} buddy={b} state={connectedIds.has(Number(b.id)) ? "connected" : receivedRequests.has(Number(b.id)) ? "received" : pendingIds.has(Number(b.id)) ? "pending" : "connect"} onConnect={async () => {
+            if (!currentUser?.id) { toast.error("Please sign in to connect"); return; }
+            const requestId = receivedRequests.get(Number(b.id));
+            if (requestId) {
+              try {
+                if (window.confirm(`Accept ${b.name}'s buddy request? Select Cancel to reject.`)) { await acceptBuddyRequest(requestId); setConnectedIds((ids) => new Set(ids).add(Number(b.id))); }
+                else { await rejectBuddyRequest(requestId); }
+                setReceivedRequests((requests) => { const next = new Map(requests); next.delete(Number(b.id)); return next; });
+              } catch (error) { toast.error(error instanceof Error ? error.message : "Could not respond to request"); }
+              return;
+            }
+            try { await sendBuddyRequest(currentUser.id, Number(b.id)); setPendingIds((ids) => new Set(ids).add(Number(b.id))); toast.success("Connection request sent!", { description: `You connected with ${b.name}` }); }
+            catch (error) { toast.error(error instanceof Error ? error.message : "Could not send request"); }
+          }} />)}
           {list.length === 0 && (
             <p className="text-muted-foreground col-span-full text-center py-12">No buddies match that search yet.</p>
           )}
@@ -79,7 +165,7 @@ function Explore() {
   );
 }
 
-function BuddyCard({ buddy }: { buddy: Buddy }) {
+function BuddyCard({ buddy, state, onConnect }: { buddy: Buddy; state: "connect" | "pending" | "received" | "connected"; onConnect: () => void }) {
   const tints: Record<Buddy["color"], string> = {
     primary: "bg-primary text-primary-foreground",
     accent: "bg-accent text-accent-foreground",
@@ -101,9 +187,10 @@ function BuddyCard({ buddy }: { buddy: Buddy }) {
       <Button
         variant="outline"
         className="mt-4 w-full rounded-full"
-        onClick={() => toast.success("✅ Connection request sent", { description: `You connected with ${buddy.name}` })}
+        onClick={onConnect}
+        disabled={state === "connected" || state === "pending"}
       >
-        <UserPlus className="h-4 w-4" /> Connect
+        <UserPlus className="h-4 w-4" /> {state === "connected" ? "Connected" : state === "pending" ? "Request sent" : state === "received" ? "Respond" : "Connect"}
       </Button>
     </div>
   );

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Hammer, Moon, Sun, ArrowLeft } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { setUser } from "@/lib/auth";
+import { loginUser, signupUser } from "@/lib/api";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -25,7 +26,10 @@ function AuthPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="px-4 sm:px-6 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          to="/"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="h-4 w-4" /> Back home
         </Link>
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
@@ -60,14 +64,20 @@ function AuthPage() {
           <div className="w-full max-w-md">
             <div className="lg:hidden mb-8 flex justify-center">
               <Link to="/" className="flex items-center gap-2">
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground"><Hammer className="h-4 w-4" /></div>
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground">
+                  <Hammer className="h-4 w-4" />
+                </div>
                 <span className="font-display text-lg font-bold">BuildBuddy</span>
               </Link>
             </div>
 
-            <h1 className="text-3xl font-bold">{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
+            <h1 className="text-3xl font-bold">
+              {mode === "signin" ? "Welcome back" : "Create your account"}
+            </h1>
             <p className="mt-2 text-muted-foreground text-sm">
-              {mode === "signin" ? "Sign in to keep building." : "Start finding partners in under a minute."}
+              {mode === "signin"
+                ? "Sign in to keep building."
+                : "Start finding partners in under a minute."}
             </p>
 
             <div className="mt-6 surface-card p-6">
@@ -92,35 +102,55 @@ function AuthPage() {
 
 function SignInForm() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("sanjivni@buildbuddy.dev");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Missing details", { description: "Please fill in all fields." });
       return;
     }
-    const username = email.split("@")[0].replace(/[^a-z0-9]/gi, "") || "Builder";
-    const pretty = username.charAt(0).toUpperCase() + username.slice(1);
-    setUser({ username: pretty, email });
-    toast.success(`✅ Welcome back, ${pretty}!`, {
-      description: "Ready to build something amazing today?",
-    });
-    navigate({ to: "/dashboard" });
+    try {
+      const result = await loginUser({ email, password });
+
+      setUser(result.user);
+
+      toast.success("Signed in", {
+        description: `Welcome back, ${result.user.username}!`,
+      });
+
+      navigate({ to: "/dashboard" });
+    } catch (error) {
+      toast.error("Login failed", { description: error instanceof Error ? error.message : "Please check your email and password." });
+    }
   };
 
   return (
     <form onSubmit={submit} className="space-y-4">
       <div>
         <Label htmlFor="email">Email</Label>
-        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1.5" />
+        <Input
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="mt-1.5"
+        />
       </div>
       <div>
         <Label htmlFor="password">Password</Label>
-        <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1.5" />
+        <Input
+          id="password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="mt-1.5"
+        />
       </div>
-      <Button type="submit" className="w-full">Sign In</Button>
+      <Button type="submit" className="w-full">
+        Sign In
+      </Button>
     </form>
   );
 }
@@ -132,7 +162,7 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !email || !password) {
       toast.error("Missing details", { description: "Please complete the form." });
@@ -142,7 +172,16 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
       toast.error("Passwords don't match", { description: "Please re-enter your password." });
       return;
     }
-    setUser({ username, email });
+
+    try {
+      await signupUser({ username, email, password });
+      const login = await loginUser({ email, password });
+      setUser(login.user);
+    } catch (error) {
+      toast.error("Signup failed", { description: "Please try again." });
+      return;
+    }
+
     toast.success(`✅ Account created`, { description: `Welcome aboard, ${username}!` });
     navigate({ to: "/dashboard" });
     onDone();
@@ -152,23 +191,50 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
     <form onSubmit={submit} className="space-y-4">
       <div>
         <Label htmlFor="u">Username</Label>
-        <Input id="u" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="builder42" className="mt-1.5" />
+        <Input
+          id="u"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="builder42"
+          className="mt-1.5"
+        />
       </div>
       <div>
         <Label htmlFor="e">Email</Label>
-        <Input id="e" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="mt-1.5" />
+        <Input
+          id="e"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          className="mt-1.5"
+        />
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         <div>
           <Label htmlFor="p">Password</Label>
-          <Input id="p" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1.5" />
+          <Input
+            id="p"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1.5"
+          />
         </div>
         <div>
           <Label htmlFor="c">Confirm</Label>
-          <Input id="c" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="mt-1.5" />
+          <Input
+            id="c"
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="mt-1.5"
+          />
         </div>
       </div>
-      <Button type="submit" className="w-full">Create account</Button>
+      <Button type="submit" className="w-full">
+        Create account
+      </Button>
     </form>
   );
 }
