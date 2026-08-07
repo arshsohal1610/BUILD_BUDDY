@@ -122,7 +122,10 @@ function SignInForm() {
 
       navigate({ to: "/dashboard" });
     } catch (error) {
-      toast.error("Login failed", { description: error instanceof Error ? error.message : "Please check your email and password." });
+      toast.error("Login failed", {
+        description:
+          error instanceof Error ? error.message : "Please check your email and password.",
+      });
     }
   };
 
@@ -178,7 +181,9 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
       const login = await loginUser({ email, password });
       setUser(login.user);
     } catch (error) {
-      toast.error("Signup failed", { description: "Please try again." });
+      toast.error("Signup failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
       return;
     }
 

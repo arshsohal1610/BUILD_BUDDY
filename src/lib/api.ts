@@ -1,5 +1,7 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://buildbuddy-backend-rvjq.onrender.com";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "https://buildbuddy-backend-rvjq.onrender.com"
+).replace(/\/$/, "");
+
 export const getUserEventsUrl = (userId: number) =>
   `${API_BASE_URL.replace(/^http/, "ws")}/ws/users/${userId}`;
 
@@ -40,48 +42,61 @@ export type BuildBuddyUser = {
 export type ProfileUpdate = Partial<Omit<BuildBuddyUser, "id" | "email">>;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, options);
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.detail || "Request failed");
+  const response = await fetch(`${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`, {
+    ...options,
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(options?.headers ?? {}),
+    },
+  });
+
+  const text = await response.text();
+  let body: unknown = null;
+
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
   }
-  return response.json() as Promise<T>;
+
+  if (!response.ok) {
+    const detail =
+      typeof body === "object" && body !== null && "detail" in body
+        ? (body as { detail?: unknown }).detail
+        : typeof body === "object" && body !== null && "message" in body
+          ? (body as { message?: unknown }).message
+          : body;
+
+    throw new Error(typeof detail === "string" ? detail : "Request failed");
+  }
+
+  return (body ?? null) as T;
 }
 
 export async function signupUser(user: { username: string; email: string; password: string }) {
-  const response = await fetch(`${API_BASE_URL}/signup`, {
+  return request<{ message: string }>("/signup", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(user),
   });
-
-  if (!response.ok) {
-    throw new Error("Signup failed");
-  }
-
-  return response.json();
 }
 
 export async function loginUser(user: { email: string; password: string }) {
-  const response = await fetch(`${API_BASE_URL}/login`, {
+  return request<{
+    message: string;
+    user: BuildBuddyUser;
+  }>("/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(user),
   });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.detail || "Login failed");
-  }
-
-  return response.json() as Promise<{
-    message: string;
-    user: BuildBuddyUser;
-  }>;
 }
 
 export async function getProjects() {
