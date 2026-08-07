@@ -1,5 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
-export const getUserEventsUrl = (userId: number) => `${API_BASE_URL.replace(/^http/, "ws")}/ws/users/${userId}`;
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "https://buildbuddy-backend-rvjq.onrender.com";
+export const getUserEventsUrl = (userId: number) =>
+  `${API_BASE_URL.replace(/^http/, "ws")}/ws/users/${userId}`;
 
 export type Project = {
   id: number;
@@ -118,20 +120,64 @@ export async function getUsers() {
   return response.json() as Promise<BuildBuddyUser[]>;
 }
 
-export const searchBuildBuddy = (query: string) => request<{ users: BuildBuddyUser[]; projects: Project[]; skills: string[] }>(`/search?q=${encodeURIComponent(query)}`);
+export const searchBuildBuddy = (query: string) =>
+  request<{ users: BuildBuddyUser[]; projects: Project[]; skills: string[] }>(`
+    /search?q=${encodeURIComponent(query)}`);
 
-export const getProfile = (email: string) => request<BuildBuddyUser>(`/me?email=${encodeURIComponent(email)}`);
-export const updateProfile = (email: string, profile: ProfileUpdate) => request<BuildBuddyUser>(`/me?email=${encodeURIComponent(email)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
-export const getUserProjects = (userId: number) => request<{ created_projects: Project[]; joined_projects: Project[] }>(`/users/${userId}/projects`);
+export const getProfile = (email: string) =>
+  request<BuildBuddyUser>(`/me?email=${encodeURIComponent(email)}`);
+export const updateProfile = (email: string, profile: ProfileUpdate) =>
+  request<BuildBuddyUser>(`/me?email=${encodeURIComponent(email)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+export const getUserProjects = (userId: number) =>
+  request<{ created_projects: Project[]; joined_projects: Project[] }>(`/users/${userId}/projects`);
 export const getBuddies = (userId: number) => request<BuildBuddyUser[]>(`/buddies/${userId}`);
-export const sendBuddyRequest = (requester_id: number, receiver_id: number) => request(`/buddies/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requester_id, receiver_id }) });
-export const getBuddyRequests = (userId: number) => request<{ received: { id: number; requester_id: number; receiver_id: number; username: string }[]; sent: { id: number; requester_id: number; receiver_id: number; username: string }[] }>(`/buddies/requests/${userId}`);
-export const acceptBuddyRequest = (requestId: number) => request(`/buddies/request/${requestId}/accept`, { method: "POST" });
-export const rejectBuddyRequest = (requestId: number) => request(`/buddies/request/${requestId}/reject`, { method: "POST" });
-export const joinProject = (projectId: number, email: string) => request(`/projects/${projectId}/join?user_email=${encodeURIComponent(email)}`, { method: "POST" });
-export const leaveProject = (projectId: number, email: string) => request(`/projects/${projectId}/leave?user_email=${encodeURIComponent(email)}`, { method: "DELETE" });
+export const sendBuddyRequest = (requester_id: number, receiver_id: number) =>
+  request(`/buddies/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requester_id, receiver_id }),
+  });
+export const getBuddyRequests = (userId: number) =>
+  request<{
+    received: { id: number; requester_id: number; receiver_id: number; username: string }[];
+    sent: { id: number; requester_id: number; receiver_id: number; username: string }[];
+  }>(`/buddies/requests/${userId}`);
+export const acceptBuddyRequest = (requestId: number) =>
+  request(`/buddies/request/${requestId}/accept`, { method: "POST" });
+export const rejectBuddyRequest = (requestId: number) =>
+  request(`/buddies/request/${requestId}/reject`, { method: "POST" });
+export const joinProject = (projectId: number, email: string) =>
+  request(`/projects/${projectId}/join?user_email=${encodeURIComponent(email)}`, {
+    method: "POST",
+  });
+export const leaveProject = (projectId: number, email: string) =>
+  request(`/projects/${projectId}/leave?user_email=${encodeURIComponent(email)}`, {
+    method: "DELETE",
+  });
 export const getDirectMessages = (userId: number) => request<Message[]>(`/messages/user/${userId}`);
-export const sendDirectMessage = (sender_id: number, receiver_id: number, content: string) => request<Message>(`/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sender_id, receiver_id, content }) });
-export const getProjectMessages = (projectId: number, userId: number) => request<Message[]>(`/messages/project/${projectId}?user_id=${userId}`);
-export const sendProjectMessage = (sender_id: number, project_id: number, content: string) => request<Message>(`/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sender_id, project_id, content }) });
-export type Message = { id: number; sender_id: number; receiver_id?: number | null; project_id?: number | null; content: string; sent_at: string };
+export const sendDirectMessage = (sender_id: number, receiver_id: number, content: string) =>
+  request<Message>(`/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sender_id, receiver_id, content }),
+  });
+export const getProjectMessages = (projectId: number, userId: number) =>
+  request<Message[]>(`/messages/project/${projectId}?user_id=${userId}`);
+export const sendProjectMessage = (sender_id: number, project_id: number, content: string) =>
+  request<Message>(`/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sender_id, project_id, content }),
+  });
+export type Message = {
+  id: number;
+  sender_id: number;
+  receiver_id?: number | null;
+  project_id?: number | null;
+  content: string;
+  sent_at: string;
+};
